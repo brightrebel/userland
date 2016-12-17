@@ -1,3 +1,5 @@
+// 17/12/2016 Ben Kazemi - added 0x8521 VI_STATUS
+
 /*
  * tc358743 - Toshiba HDMI to CSI-2 bridge - register names and bit masks
  *
@@ -28,6 +30,8 @@
 
 #ifndef __TC358743_REGS_H
 #define __TC358743_REGS_H
+
+#define VI_STATUS 							  0x8521
 
 #define CHIPID                                0x0000
 #define MASK_CHIPID                           0xff00
