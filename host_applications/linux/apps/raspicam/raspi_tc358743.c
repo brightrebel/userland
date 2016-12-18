@@ -1,6 +1,7 @@
 /*
 
 17/12/2016 Ben Kazemi - all resolutions advertised by the edid now work through dynamic datalane switching
+18/11/2016 Ben Kazemi - Now dynamically switches doing two pass throughs of cmds 1 and 2 init using a goto to use sensible data to handle the datalane count and registers
 
 Copyright (c) 2015, Raspberry Pi Foundation
 Copyright (c) 2015, Dave Stevenson
@@ -66,8 +67,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define u16 uint16_t
 #define u32 uint32_t
 
-#define is_sub_720p 0
-
 struct sensor_regs {
    uint16_t reg;
    uint8_t  data;
@@ -81,6 +80,10 @@ struct sensor_regs {
 #define I2C_ADDR 0x0F
 
 #define CSI_IMAGE_ID 0x24
+
+u8 playthroughs = 0;
+
+// #define is_sub_720p 1
 
 static void i2c_rd(int fd, uint16_t reg, uint8_t *values, uint32_t n)
 {
@@ -254,125 +257,41 @@ struct cmds_t {
    int num_bytes;
 };
 
-#define ENABLE_DATALANE_1 0x0
-#define DISABLE_DATALANE_1 0x1
-// u16 height = ((i2c_rd8(fd, DE_WIDTH_V_HI) & 0x1f) << 8) +
-// i2c_rd8(fd, DE_WIDTH_V_LO);
-// vcos_log_error("           >>>> height to select datalanes: %u", height);
 
-
-
-// if (height < 720)
-#if is_sub_720p == 1
-   #define r0006 0x0080
-   #define r0148 DISABLE_DATALANE_1
-   #define r0500 0xA3008080
-   // vcos_log_error("        >>> Using 1 datalane");
-#else
-   #define r0006 0x0008
-   #define r0148 ENABLE_DATALANE_1
-   #define r0500 0xA3008082
-   // vcos_log_error("        >>> Using 2 datalanes");
-#endif
-
-struct cmds_t cmds[] = 
-{
-   {0x0004, 0x0000, 2}, // Disable video TX Buffer 
-   
-   // Turn off power and put in reset
-   // handle.first_boot = VC_FALSE;
-   {0x0002, 0x0F00, 2},    // Assert Reset, [0] = 0: Exit Sleep, wait
-
-   {0x0000, 1, 0xFFFF},      // V054 requires us to wait 1ms for PLL to lock
-   {0x0002, 0x0000, 2},    // Release Reset, Exit Sleep
-
-
-   {0x0006, r0006, 2},    // FIFO level
-   {0x0008, 0x005f, 2},    // Audio buffer level -- 96 bytes = 0x5F + 1
-   {0x0014, 0xFFFF, 2},     // Clear HDMI Rx, CSI Tx and System Interrupt Status
-   {0x0016, 0x051f, 2},    // Enable HDMI-Rx Interrupt (bit 9), Sys interrupt (bit 5). Disable others. 11-15, 6-7 reserved
-   {0x0020, 0x8111, 2},        // PRD[15:12], FBD[8:0]
-   {0x0022, 0x0213, 2},    // FRS[11:10], LBWS[9:8]= 2, Clock Enable[4] = 1,  ResetB[1] = 1,  PLL En[0]
-   {0x0004, r0004,  2},    // PwrIso[15], 422 output, send infoframe
-   {0x0140, 0x0,    4},    //Enable CSI-2 Clock lane
-   {0x0144, 0x0,    4},    //Enable CSI-2 Data lane 0
-   {0x0148, r0148,    4},    //Enable CSI-2 Data lane 1
-   {0x014C, 0x1,    4},    //Disable CSI-2 Data lane 2
-   {0x0150, 0x1,    4},    //Disable CSI-2 Data lane 3
-
-   {0x0210, 0x00002988, 4},   // LP11 = 100 us for D-PHY Rx Init
-   {0x0214, 0x00000005, 4},   // LP Tx Count[10:0]
-   {0x0218, 0x00001d04, 4},   // TxClk_Zero[15:8]
-   {0x021C, 0x00000002, 4},   // TClk_Trail =
-   {0x0220, 0x00000504, 4},   // HS_Zero[14:8] =
-   {0x0224, 0x00004600, 4},   // TWAKEUP Counter[15:0]
-   {0x0228, 0x0000000A, 4},   // TxCLk_PostCnt[10:0]
-   {0x022C, 0x00000004, 4},   // THS_Trail =
-   {0x0234, 0x0000001F, 4},   // Enable Voltage Regulator for CSI (4 Data + Clk) Lanes
-   {0x0204, 0x00000001, 4},   // Start PPI
-
-   {0x0518, 0x00000001, 4},   // Start CSI-2 Tx
-   {0x0500, r0500, 4},   // SetBit[31:29]
-      //
-      //    1010 0011 0000 0000    1000 0000 1010 0010
-
-   {0x8502, 0x01, 1},      // Enable HPD DDC Power Interrupt
-   {0x8512, 0xFE, 1},      // Disable HPD DDC Power Interrupt Mask
-   {0x8513, (uint8_t) ~0x20, 1},    // Receive interrupts for video format change (bit 5)
-   {0x8515, (uint8_t) ~0x02, 1},    // Receive interrupts for format change (bit 1)
-
-   {0x8531, 0x01, 1},      // [1] = 1: RefClk 42 MHz, [0] = 1, DDC5V Auto detection
-   {0x8540, 0x0A8C, 2}, // SysClk Freq count with RefClk = 27 MHz (0x1068 for 42 MHz, default)
-   {0x8630, 0x00041eb0, 4},   // Audio FS Lock Detect Control [19:0]: 041EB0 for 27 MHz, 0668A0 for 42 MHz (default)
-   {0x8670, 0x01, 1},         // SysClk 27/42 MHz: 00:= 42 MHz
-
-   {0x8532, 0x80, 1},      // PHY_AUTO_RST[7:4] = 1600 us, PHY_Range_Mode = 12.5 us
-   {0x8536, 0x40, 1},      // [7:4] Ibias: TBD, [3:0] BGR_CNT: Default
-   {0x853F, 0x0A, 1},      // [3:0] = 0x0a: PHY TMDS CLK line squelch level: 50 uA
-
-   {0x8543, 0x32, 1},      // [5:4] = 2'b11: 5V Comp, [1:0] = 10, DDC 5V active detect delay setting: 100 ms
-   {0x8544, 0x10, 1},      // DDC5V detection interlock -- enable
-   {0x8545, 0x31, 1},      //  [5:4] = 2'b11: Audio PLL charge pump setting to Normal, [0] = 1: DAC/PLL Power On
-   {0x8546, 0x2D, 1},      // [7:0] = 0x2D: AVMUTE automatic clear setting (when in MUTE and no AVMUTE CMD received) 45 * 100 ms
-
-   {0x85C7, 0x01, 1},      // [6:4] EDID_SPEED: 100 KHz, [1:0] EDID_MODE: Internal EDID-RAM & DDC2B mode
-   {0x85CB, 0x01, 1},      // EDID Data size read from EEPROM EDID_LEN[10:8] = 0x01, 256-Byte
-};
-#define NUM_REGS_CMD (sizeof(cmds)/sizeof(cmds[0]))
 
 #define TOSHH2C_720P
 
 #ifdef TOSHH2C_720P
 // 720P with quantization flag
 static unsigned char TOSHH2C_DEFAULT_EDID[] = //{
-    "00ffffffffffff005262888800888888"
-    "1c150103800000780aEE91A3544C9926"
-    "0F505400000001010101010101010101"
-    "010101010101011d007251d01e206e28"
-    "5500c48e2100001e8c0ad08a20e02d10"
-    "103e9600138e2100001e000000fc0054"
-    "6f73686962612d4832430a20000000FD"
-    "003b3d0f2e0f1e0a2020202020200167"
-    "020320424d841303021211012021223c"
-    "3d3e2309070766030c00300080E3007F"
-    "8c0ad08a20e02d10103e9600c48e2100"
-    "00188c0ad08a20e02d10103e9600138e"
-    "210000188c0aa01451f01600267c4300"
-    "138e2100009800000000000000000000"
-    "00000000000000000000000000000000"
-    "00000000000000000000000000000020";
- #else
+   "\x00\xff\xff\xff\xff\xff\xff\x00\x52\x62\x88\x88\x00\x88\x88\x88"
+   "\x1c\x15\x01\x03\x80\x00\x00\x78\x0a\xEE\x91\xA3\x54\x4C\x99\x26"
+   "\x0F\x50\x54\x00\x00\x00\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01"
+   "\x01\x01\x01\x01\x01\x01\x01\x1d\x00\x72\x51\xd0\x1e\x20\x6e\x28"
+   "\x55\x00\xc4\x8e\x21\x00\x00\x1e\x8c\x0a\xd0\x8a\x20\xe0\x2d\x10"
+   "\x10\x3e\x96\x00\x13\x8e\x21\x00\x00\x1e\x00\x00\x00\xfc\x00\x54"
+   "\x6f\x73\x68\x69\x62\x61\x2d\x48\x32\x43\x0a\x20\x00\x00\x00\xFD"
+   "\x00\x3b\x3d\x0f\x2e\x0f\x1e\x0a\x20\x20\x20\x20\x20\x20\x01\x67"
+   "\x02\x03\x1A\x42\x47\x84\x13\x03\x02\x07\x06\x01\x23\x09\x07\x07"
+   "\x66\x03\x0c\x00\x30\x00\x80\xE3\x00\x7F\x8c\x0a\xd0\x8a\x20\xe0"
+   "\x2d\x10\x10\x3e\x96\x00\xc4\x8e\x21\x00\x00\x18\x8c\x0a\xd0\x8a"
+   "\x20\xe0\x2d\x10\x10\x3e\x96\x00\x13\x8e\x21\x00\x00\x18\x8c\x0a"
+   "\xa0\x14\x51\xf0\x16\x00\x26\x7c\x43\x00\x13\x8e\x21\x00\x00\x98"
+   "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+   "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+   "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x20";
+#else
 
 // 480P EDID
 static unsigned char TOSHH2C_DEFAULT_EDID[] = //{
-   "00FFFFFFFFFFFF005262888800888888"
-   "1C150103800000780AEE91A3544C9926"
-   "0F505400000001010101010101010101"
-   "0101010101018C0AD08A20E02D10103E"
-   "9600138E2100001E000000FC00546F73"
-   "686962612D4832430A20000000FD003B"
-   "3D0F2E0F000A20202020202000000010"
-   "000000000000000000000000000001C8";
+"\x00\xFF\xFF\xFF\xFF\xFF\xFF\x00\x52\x62\x88\x88\x00\x88\x88\x88"
+"\x1C\x15\x01\x03\x80\x00\x00\x78\x0A\xEE\x91\xA3\x54\x4C\x99\x26"
+"\x0F\x50\x54\x00\x00\x00\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01"
+"\x01\x01\x01\x01\x01\x01\x8C\x0A\xD0\x8A\x20\xE0\x2D\x10\x10\x3E"
+"\x96\x00\x13\x8E\x21\x00\x00\x1E\x00\x00\x00\xFC\x00\x54\x6F\x73"
+"\x68\x69\x62\x61\x2D\x48\x32\x43\x0A\x20\x00\x00\x00\xFD\x00\x3B"
+"\x3D\x0F\x2E\x0F\x00\x0A\x20\x20\x20\x20\x20\x20\x00\x00\x00\x10"
+"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\xC8";
 
 #endif
 
@@ -417,11 +336,6 @@ struct cmds_t cmds2[] =
    {0x870D, 0x01, 1},      // InFo Pkt: [7]: Correctable Error is included, [6:0] # of Errors before assert interrupt
    {0x870E, 0x30, 1},      // [7:4]: VS packet Intervals before interrupt, [3:0] SPD packet Intervals, [] * 80 ms
    {0x9007, 0x10, 1},      // [5:0]  Auto clear by not receiving 16V GBD
-
-
-   
-
-
    {0x854A, 0x01, 1},      // HDMIRx Initialization Completed, THIS MUST BE SET AT THE LAST!
 
 };
@@ -475,16 +389,6 @@ void write_regs(int fd, struct cmds_t *regs, int count)
    }
 }
 
-unsigned char ascii_to_hex(unsigned char c)
-{
-   if(c>='0' && c<='9')
-      return (c-'0');
-   else if (c>='A' && c<='F')
-      return ((c-'A') + 10);
-   else if (c>='a' && c<='f')
-      return ((c-'a') + 10);
-   return 0;
-}
 void start_camera_streaming(int fd)
 {
 #ifdef DO_PIN_CONFIG
@@ -502,39 +406,124 @@ void start_camera_streaming(int fd)
 
 
 
+   #define ENABLE_DATALANE_1 0x0
+   #define DISABLE_DATALANE_1 0x1
+
+   u8 _S_V_format = i2c_rd8(fd, VI_STATUS) & 0x0F;
+   vcos_log_error("           VI_STATUS to select cfg.data_lanes: %u", _S_V_format);
+   // u16 height = ((i2c_rd8(fd, DE_WIDTH_V_HI) & 0x1f) << 8) +
+   // i2c_rd8(fd, DE_WIDTH_V_LO);
+   // vcos_log_error("           >>>> VI_STATUS to select registers: %u", VI_STATUS);
+
+   u16 r0006;
+   u8 r0148;
+   u32 r0500;
+
+
+   if (_S_V_format < 12)
+   {
+      r0006 = 0x0080;
+      r0148 = DISABLE_DATALANE_1;
+      r0500 = 0xA3008080;
+      vcos_log_error("           >>>> Selected Sub 720p registers");
+   }
+   else
+   {
+      r0006 = 0x0008;
+      r0148 = ENABLE_DATALANE_1;
+      r0500 = 0xA3008082;
+      vcos_log_error("           >>>> Selected 720p+ registers");
+   }
+
+   struct cmds_t cmds[] = 
+   {
+      {0x0004, 0x0000, 2}, // Disable video TX Buffer 
+      // Turn off power and put in reset
+      // handle.first_boot = VC_FALSE;
+      {0x0002, 0x0F00, 2},    // Assert Reset, [0] = 0: Exit Sleep, wait
+
+      {0x0000, 1, 0xFFFF},      // V054 requires us to wait 1ms for PLL to lock
+      {0x0002, 0x0000, 2},    // Release Reset, Exit Sleep
+      {0x0006, r0006, 2},    // FIFO level
+      {0x0008, 0x005f, 2},    // Audio buffer level -- 96 bytes = 0x5F + 1
+      {0x0014, 0xFFFF, 2},     // Clear HDMI Rx, CSI Tx and System Interrupt Status
+      {0x0016, 0x051f, 2},    // Enable HDMI-Rx Interrupt (bit 9), Sys interrupt (bit 5). Disable others. 11-15, 6-7 reserved
+      {0x0020, 0x8111, 2},        // PRD[15:12], FBD[8:0]
+      {0x0022, 0x0213, 2},    // FRS[11:10], LBWS[9:8]= 2, Clock Enable[4] = 1,  ResetB[1] = 1,  PLL En[0]
+      {0x0004, r0004,  2},    // PwrIso[15], 422 output, send infoframe
+      {0x0140, 0x0,    4},    //Enable CSI-2 Clock lane
+      {0x0144, 0x0,    4},    //Enable CSI-2 Data lane 0
+      {0x0148, r0148,    4},    //Enable CSI-2 Data lane 1
+      {0x014C, 0x1,    4},    //Disable CSI-2 Data lane 2
+      {0x0150, 0x1,    4},    //Disable CSI-2 Data lane 3
+
+      {0x0210, 0x00002988, 4},   // LP11 = 100 us for D-PHY Rx Init
+      {0x0214, 0x00000005, 4},   // LP Tx Count[10:0]
+      {0x0218, 0x00001d04, 4},   // TxClk_Zero[15:8]
+      {0x021C, 0x00000002, 4},   // TClk_Trail =
+      {0x0220, 0x00000504, 4},   // HS_Zero[14:8] =
+      {0x0224, 0x00004600, 4},   // TWAKEUP Counter[15:0]
+      {0x0228, 0x0000000A, 4},   // TxCLk_PostCnt[10:0]
+      {0x022C, 0x00000004, 4},   // THS_Trail =
+      {0x0234, 0x0000001F, 4},   // Enable Voltage Regulator for CSI (4 Data + Clk) Lanes
+      {0x0204, 0x00000001, 4},   // Start PPI
+
+      {0x0518, 0x00000001, 4},   // Start CSI-2 Tx
+      {0x0500, r0500, 4},   // SetBit[31:29]
+         //
+         //    1010 0011 0000 0000    1000 0000 1010 0010
+
+      {0x8502, 0x01, 1},      // Enable HPD DDC Power Interrupt
+      {0x8512, 0xFE, 1},      // Disable HPD DDC Power Interrupt Mask
+      {0x8513, (uint8_t) ~0x20, 1},    // Receive interrupts for video format change (bit 5)
+      {0x8515, (uint8_t) ~0x02, 1},    // Receive interrupts for format change (bit 1)
+
+      {0x8531, 0x01, 1},      // [1] = 1: RefClk 42 MHz, [0] = 1, DDC5V Auto detection
+      {0x8540, 0x0A8C, 2}, // SysClk Freq count with RefClk = 27 MHz (0x1068 for 42 MHz, default)
+      {0x8630, 0x00041eb0, 4},   // Audio FS Lock Detect Control [19:0]: 041EB0 for 27 MHz, 0668A0 for 42 MHz (default)
+      {0x8670, 0x01, 1},         // SysClk 27/42 MHz: 00:= 42 MHz
+
+      {0x8532, 0x80, 1},      // PHY_AUTO_RST[7:4] = 1600 us, PHY_Range_Mode = 12.5 us
+      {0x8536, 0x40, 1},      // [7:4] Ibias: TBD, [3:0] BGR_CNT: Default
+      {0x853F, 0x0A, 1},      // [3:0] = 0x0a: PHY TMDS CLK line squelch level: 50 uA
+
+      {0x8543, 0x32, 1},      // [5:4] = 2'b11: 5V Comp, [1:0] = 10, DDC 5V active detect delay setting: 100 ms
+      {0x8544, 0x10, 1},      // DDC5V detection interlock -- enable
+      {0x8545, 0x31, 1},      //  [5:4] = 2'b11: Audio PLL charge pump setting to Normal, [0] = 1: DAC/PLL Power On
+      {0x8546, 0x2D, 1},      // [7:0] = 0x2D: AVMUTE automatic clear setting (when in MUTE and no AVMUTE CMD received) 45 * 100 ms
+
+      {0x85C7, 0x01, 1},      // [6:4] EDID_SPEED: 100 KHz, [1:0] EDID_MODE: Internal EDID-RAM & DDC2B mode
+      {0x85CB, 0x01, 1},      // EDID Data size read from EEPROM EDID_LEN[10:8] = 0x01, 256-Byte
+   };
+   #define NUM_REGS_CMD (sizeof(cmds)/sizeof(cmds[0]))
+
 
    write_regs(fd, cmds, NUM_REGS_CMD);
-   vcos_log_error("Done writing CMDS");
-
       // default is 256 bytes, 256 / 16
    // write in groups of 16
    {
-      u8 edid[256];
       int i, j;
       unsigned char checksum = 0;
-      for (i = 0; i < sizeof(TOSHH2C_DEFAULT_EDID)/2; i += 16)
+      for (i = 0; i < sizeof(TOSHH2C_DEFAULT_EDID); i += 16)
       {
          for (j = 0; j < 15; j++)
          {
-            edid[i + j] = (ascii_to_hex(TOSHH2C_DEFAULT_EDID[i+j*2])<<4) +
-                           ascii_to_hex(TOSHH2C_DEFAULT_EDID[i+j*2 + 1]);
-            checksum -= edid[i + j];
+            checksum -= TOSHH2C_DEFAULT_EDID[i + j];
          }
          // if checksum byte
          if (i == (7 * 16) || i == (15 * 16))
          {
-            edid[i + 15] = checksum;
+            TOSHH2C_DEFAULT_EDID[i + 15] = checksum;
             checksum = 0;
          }
          else
          {
-            checksum -= edid[i + 15];
+            checksum -= TOSHH2C_DEFAULT_EDID[i + 15];
          }
-         i2c_wr(fd, 0x8C00 + i, &edid[i], 16);
+         i2c_wr(fd, 0x8C00 + i, &TOSHH2C_DEFAULT_EDID[i], 16);
       }
    }
    write_regs(fd, cmds2, NUM_REGS_CMD2);
-   vcos_log_error("Done writing CMDS2");
 }
 
 void stop_camera_streaming(int fd)
@@ -709,6 +698,8 @@ int main (void)
       return -1;
    }
 
+   loop:
+
    output = rawcam->output[0];
    isp_input = isp->input[0];
    isp_output = isp->output[0];
@@ -725,22 +716,26 @@ int main (void)
    }
    rx_cfg.image_id = CSI_IMAGE_ID;
 
-   // u8 _S_V_format = i2c_rd8(i2c_fd, VI_STATUS) & 0x0F;
-   // vcos_log_error("           VI_STATUS read: %u", _S_V_format);
+
    // height = ((i2c_rd8(i2c_fd, DE_WIDTH_V_HI) & 0x1f) << 8) +
    // i2c_rd8(i2c_fd, DE_WIDTH_V_LO);
    // vcos_log_error("           >>>> height to select rx_cfg.data_lanes: %u", height);
-   // if (height < 720)
-   if (is_sub_720p == 1)
+
+   u8 _S_V_format = i2c_rd8(i2c_fd, VI_STATUS) & 0x0F;
+   vcos_log_error("           VI_STATUS to select cfg.data_lanes: %u", _S_V_format);
+
+   if (_S_V_format < 12)
    {
-      rx_cfg.data_lanes = 1; // good 
+      rx_cfg.data_lanes = 1; 
       vcos_log_error("        >>> rx_cfg.data_lanes = 1");
    }
    else
    {
-      rx_cfg.data_lanes = 2; // good 
+      rx_cfg.data_lanes = 2; 
       vcos_log_error("        >>> rx_cfg.data_lanes = 2");
    }
+
+
 
    rx_cfg.unpack = UNPACK;
    rx_cfg.pack = PACK;
@@ -801,7 +796,6 @@ int main (void)
    }
 
    start_camera_streaming(i2c_fd);
-
    vcos_sleep(500);  //Give a chance to detect signal
    vcos_log_error("Waiting to detect signal...");
 
@@ -820,6 +814,42 @@ int main (void)
       i2c_rd8(i2c_fd, H_SIZE_LO);
    frame_height = (((i2c_rd8(i2c_fd, V_SIZE_HI) & 0x3f) << 8) +
       i2c_rd8(i2c_fd, V_SIZE_LO)) / 2;
+
+
+
+
+if (playthroughs == 0)
+{
+   playthroughs++;
+   vcos_log_error("        >>> First playthrough, Goto Loop");
+   goto loop;
+}
+// u16 height = ((i2c_rd8(fd, DE_WIDTH_V_HI) & 0x1f) << 8) +
+// i2c_rd8(fd, DE_WIDTH_V_LO);
+// vcos_log_error("           >>>> height to select datalanes: %u", height);
+
+
+
+
+// rx_cfg.data_lanes = 1;
+
+// if (height < 720)
+// #if is_sub_720p == 1
+//    #define r0006 0x0080
+//    #define r0148 DISABLE_DATALANE_1
+//    #define r0500 0xA3008080
+//    // vcos_log_error("        >>> Using 1 datalane");
+// #else
+//    #define r0006 0x0008
+//    #define r0148 ENABLE_DATALANE_1
+//    #define r0500 0xA3008082
+//    // vcos_log_error("        >>> Using 2 datalanes");
+// #endif
+
+
+
+
+
 
    /* frame interval in milliseconds * 10
     * Require SYS_FREQ0 and SYS_FREQ1 are precisely set */
@@ -1079,7 +1109,6 @@ int main (void)
    // Setup complete
 
    vcos_log_error("All done. Start streaming...");
-
    write_regs(i2c_fd, cmds3, NUM_REGS_CMD3);
 
    vcos_log_error("View!");
@@ -1089,6 +1118,8 @@ int main (void)
 
    vcos_log_error("Stopping streaming...");
    stop_camera_streaming(i2c_fd);
+
+   playthroughs = 0;
 
 port_disable:
 
