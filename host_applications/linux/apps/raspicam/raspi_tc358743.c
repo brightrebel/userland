@@ -1,8 +1,15 @@
 /*
 
 17/12/2016 Ben Kazemi - all resolutions advertised by the edid now work through dynamic datalane switching
-18/11/2016 Ben Kazemi - Now dynamically switches doing two pass throughs of cmds 1 and 2 init using a goto to use sensible data to handle the datalane count and registers
 
+   18/11/2016 Ben Kazemi - Now dynamically switches doing two pass throughs of cmds 1 and 2 init using a goto to use sensible data to handle the datalane count and registers
+      added time command line argument. no flag just call ./app time_in_ms
+      --> need to handle this for ctrl+c AND for 0 
+      
+get value, set to 1. if time value is 0 then remove the sleep and while loop with a little 50ms sleep inside,
+   signal handler sets value to 0. while loop breaks and continues.
+
+   
 Copyright (c) 2015, Raspberry Pi Foundation
 Copyright (c) 2015, Dave Stevenson
 All rights reserved.
@@ -29,6 +36,9 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
+
+#include <signal.h>
+#include <unistd.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -82,6 +92,9 @@ struct sensor_regs {
 #define CSI_IMAGE_ID 0x24
 
 u8 playthroughs = 0;
+u32 sleepDuration = 0; 
+
+// void signal_callback_handler(int);
 
 // #define is_sub_720p 1
 
@@ -636,8 +649,10 @@ static FILE *open_filename(const char *filename)
 }
 
 
-int main (void)
+int main ( int argc, char *argv[] )
 {
+   char *ptr;
+   sleepDuration = strtol(argv[1], &ptr, 10);
    MMAL_COMPONENT_T *rawcam, *render, *isp, *splitter, *encoder;
    MMAL_STATUS_T status;
    MMAL_PORT_T *output, *input, *isp_input, *isp_output, *encoder_input, *encoder_output;
@@ -648,6 +663,9 @@ int main (void)
    int i2c_fd;
    unsigned int width, height, fps, frame_interval;
    unsigned int frame_width, frame_height;
+
+   /* CALL THE SIGNAL HANDLER FUNCTION ON A Ctrl-C EXIT */
+   // signal(SIGINT, signal_callback_handler);
 
    i2c_fd = open("/dev/i2c-0", O_RDWR);
    if (!i2c_fd)
@@ -1106,6 +1124,14 @@ if (playthroughs == 0)
       vcos_log_error("Sent buffer %p", buffer);
    }
 
+   /* CLEAN UP AFTER A Ctrl-c EXIT */
+   // void signal_callback_handler(int signum)
+   // {
+   //    printf("\nCaught signal %d\n",signum);
+   //    // goto exit;
+   //    // exit(signum);
+   // }
+
    // Setup complete
 
    vcos_log_error("All done. Start streaming...");
@@ -1113,7 +1139,10 @@ if (playthroughs == 0)
 
    vcos_log_error("View!");
 
-   vcos_sleep(10000);
+   vcos_log_error("Sleeping for %u ms", sleepDuration);
+   vcos_sleep(sleepDuration);
+
+// exit:
    running = 0;
 
    vcos_log_error("Stopping streaming...");
@@ -1176,6 +1205,8 @@ component_destroy:
    close(i2c_fd);
    return 0;
 }
+
+
 
 #define MAX_ENCODINGS_NUM 20
 typedef struct {
