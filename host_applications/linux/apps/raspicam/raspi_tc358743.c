@@ -3,13 +3,14 @@
 17/12/2016 Ben Kazemi - all resolutions advertised by the edid now work through dynamic datalane switching
 
    18/11/2016 Ben Kazemi - Now dynamically switches doing two pass throughs of cmds 1 and 2 init using a goto to use sensible data to handle the datalane count and registers
+      added ctrl+c clean exit
+      added 0 time input, requires ctrl + c to exit
       added time command line argument. no flag just call ./app time_in_ms
       --> need to handle this for ctrl+c AND for 0 
       
-get value, set to 1. if time value is 0 then remove the sleep and while loop with a little 50ms sleep inside,
-   signal handler sets value to 0. while loop breaks and continues.
 
-   
+
+
 Copyright (c) 2015, Raspberry Pi Foundation
 Copyright (c) 2015, Dave Stevenson
 All rights reserved.
@@ -91,10 +92,11 @@ struct sensor_regs {
 
 #define CSI_IMAGE_ID 0x24
 
+u8 calledQuit = 0;
 u8 playthroughs = 0;
 u32 sleepDuration = 0; 
 
-// void signal_callback_handler(int);
+void signal_callback_handler(int);
 
 // #define is_sub_720p 1
 
@@ -438,14 +440,14 @@ void start_camera_streaming(int fd)
       r0006 = 0x0080;
       r0148 = DISABLE_DATALANE_1;
       r0500 = 0xA3008080;
-      vcos_log_error("           >>>> Selected Sub 720p registers");
+      vcos_log_error("\t\t\t >>> Selected Sub 720p registers");
    }
    else
    {
       r0006 = 0x0008;
       r0148 = ENABLE_DATALANE_1;
       r0500 = 0xA3008082;
-      vcos_log_error("           >>>> Selected 720p+ registers");
+      vcos_log_error("\t\t\t >>> Selected 720p+ registers");
    }
 
    struct cmds_t cmds[] = 
@@ -648,6 +650,14 @@ static FILE *open_filename(const char *filename)
    return new_handle;
 }
 
+/* CLEAN UP AFTER A Ctrl-c EXIT */
+void signal_callback_handler(int signum)
+{
+   printf("\t\t\t >>> Caught signal %d\n\t\t\t >>> Cleanly exiting"\n, signum);
+   calledQuit = 1; 
+   // goto exit;
+   // exit(signum);
+}
 
 int main ( int argc, char *argv[] )
 {
@@ -665,7 +675,7 @@ int main ( int argc, char *argv[] )
    unsigned int frame_width, frame_height;
 
    /* CALL THE SIGNAL HANDLER FUNCTION ON A Ctrl-C EXIT */
-   // signal(SIGINT, signal_callback_handler);
+   signal(SIGINT, signal_callback_handler);
 
    i2c_fd = open("/dev/i2c-0", O_RDWR);
    if (!i2c_fd)
@@ -740,17 +750,17 @@ int main ( int argc, char *argv[] )
    // vcos_log_error("           >>>> height to select rx_cfg.data_lanes: %u", height);
 
    u8 _S_V_format = i2c_rd8(i2c_fd, VI_STATUS) & 0x0F;
-   vcos_log_error("           VI_STATUS to select cfg.data_lanes: %u", _S_V_format);
+   vcos_log_error("\t\t\t >>> VI_STATUS to select cfg.data_lanes: %u", _S_V_format);
 
    if (_S_V_format < 12)
    {
       rx_cfg.data_lanes = 1; 
-      vcos_log_error("        >>> rx_cfg.data_lanes = 1");
+      vcos_log_error("\t\t\t >>> rx_cfg.data_lanes = 1");
    }
    else
    {
       rx_cfg.data_lanes = 2; 
-      vcos_log_error("        >>> rx_cfg.data_lanes = 2");
+      vcos_log_error("\t\t\t >>> rx_cfg.data_lanes = 2");
    }
 
 
@@ -832,6 +842,8 @@ int main ( int argc, char *argv[] )
       i2c_rd8(i2c_fd, H_SIZE_LO);
    frame_height = (((i2c_rd8(i2c_fd, V_SIZE_HI) & 0x3f) << 8) +
       i2c_rd8(i2c_fd, V_SIZE_LO)) / 2;
+   
+
 
 
 
@@ -839,7 +851,7 @@ int main ( int argc, char *argv[] )
 if (playthroughs == 0)
 {
    playthroughs++;
-   vcos_log_error("        >>> First playthrough, Goto Loop");
+   vcos_log_error("\t\t\t >>> First playthrough, Goto Loop");
    goto loop;
 }
 // u16 height = ((i2c_rd8(fd, DE_WIDTH_V_HI) & 0x1f) << 8) +
@@ -1124,23 +1136,25 @@ if (playthroughs == 0)
       vcos_log_error("Sent buffer %p", buffer);
    }
 
-   /* CLEAN UP AFTER A Ctrl-c EXIT */
-   // void signal_callback_handler(int signum)
-   // {
-   //    printf("\nCaught signal %d\n",signum);
-   //    // goto exit;
-   //    // exit(signum);
-   // }
 
    // Setup complete
-
    vcos_log_error("All done. Start streaming...");
    write_regs(i2c_fd, cmds3, NUM_REGS_CMD3);
-
    vcos_log_error("View!");
 
-   vcos_log_error("Sleeping for %u ms", sleepDuration);
-   vcos_sleep(sleepDuration);
+   if (sleepDuration > 0)
+   {
+      vcos_log_error("\t\t\t >>> Sleeping for %u ms", sleepDuration);
+      vcos_sleep(sleepDuration);
+   }
+   else
+   {
+      vcos_log_error("\t\t\t >>> Sleeping until you ctrl+c me!");
+      while (calledQuit != 1)
+      {
+         vcos_sleep(100);
+      }
+   }
 
 // exit:
    running = 0;
