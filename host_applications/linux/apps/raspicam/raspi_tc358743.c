@@ -646,7 +646,7 @@ int main ( int argc, char *argv[] )
    u8 option_index = 0; 
    u32 sleep_duration = 0; //strtol(argv[1], &ptr, 10);
    char *_filename = "test_encode"; 
-   while ((option_index = getopt(argc, argv, "t:f:")) != -1)
+   while ((option_index = getopt(argc, argv, "ht:f:")) != -1)
    {
       switch (option_index)
       {
@@ -662,6 +662,11 @@ int main ( int argc, char *argv[] )
             _filename = optarg; 
             vcos_log_error("Filename is %s\n", _filename);
             break; 
+         case 'h':
+            printf("Available options are:\n\n");
+            printf("\t\t-t\tDefaults to 0 ms which playbacks indefinitely.\n");
+            printf("\t\t-f\tOptional filename\n");
+            printf("\t\t-h\tHelp\n");
          default: 
             vcos_log_error("Incorrect option");
             return 1;
