@@ -635,7 +635,7 @@ static FILE *open_filename(const char *filename)
 /* Clean up after Ctrl+c */
 void signal_callback_handler(int signum)
 {
-   printf("Caught signal %d\nCleanly exiting"\n, signum);
+   printf("Caught signal %d\nCleanly exiting\n", signum);
    called_quit = 1; 
    // goto exit;
    // exit(signum);
@@ -644,9 +644,10 @@ void signal_callback_handler(int signum)
 int main ( int argc, char *argv[] )
 {
    u8 option_index = 0; 
+   u8 output_file_true = 0;
    u32 sleep_duration = 0; //strtol(argv[1], &ptr, 10);
-   char *_filename = "test_encode"; 
-   while ((option_index = getopt(argc, argv, "ht:f:")) != -1)
+   char *_filename = "test_encode.h264"; 
+   while ((option_index = getopt(argc, argv, "ht:o:")) != -1)
    {
       switch (option_index)
       {
@@ -658,17 +659,26 @@ int main ( int argc, char *argv[] )
                return 1;
             }
             break;
-         case 'f':
-            _filename = optarg; 
+         case 'o':
+            output_file_true = 1;
+            intermediate_filename = optarg; 
+            if (intermediate_filename != "")
+            }
+               char* extension;
+               extension = ".h264";
+               _filename = (char *) malloc(1 + strlen(intermediate_filename)+ strlen(extension) );
+               strcpy(_filename, intermediate_filename);
+               strcat(_filename, extension);            
+            {  
             vcos_log_error("Filename is %s\n", _filename);
             break; 
          case 'h':
             printf("Available options are:\n\n");
             printf("\t\t-t\tDefaults to 0 ms which playbacks indefinitely.\n");
-            printf("\t\t-f\tOptional filename\n");
+            printf("\t\t-o\tOutput file. Enter filename, default is 'test_encode.h264'.\n");
             printf("\t\t-h\tHelp\n");
          default: 
-            vcos_log_error("Incorrect option");
+            vcos_log_error("Incorrect option!");
             return 1;
       }
    }
@@ -1079,8 +1089,8 @@ int main ( int argc, char *argv[] )
    }
 
    // open h264 file and put the file handle in userdata for the encoder output port
-
-   encoder_output->userdata = (void*)open_filename(concat(_filename, ".h264"));
+   if (output_file_true == 1)
+      encoder_output->userdata = (void*)open_filename(_filename);
 
    //Create encoder output buffers
 
