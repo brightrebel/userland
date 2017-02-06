@@ -68,6 +68,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define u8  uint8_t
 #define u16 uint16_t
 #define u32 uint32_t
+   u8 optional_file = 1; 
 
 u8 called_quit = 0;
 
@@ -551,10 +552,12 @@ static void encoder_buffer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buf
 
    if (running)
    {
-      FILE *file = (FILE*)port->userdata;
-      bytes_written = fwrite(buffer->data, 1, buffer->length, file);
-      fflush(file);
-
+      if (optional_file == 1)
+      {
+         FILE *file = (FILE*)port->userdata;
+         bytes_written = fwrite(buffer->data, 1, buffer->length, file);
+         fflush(file);
+      }
       mmal_buffer_header_mem_unlock(buffer);
 
       if (bytes_written != buffer->length)
@@ -581,7 +584,7 @@ static FILE *open_filename(const char *filename)
 {
    FILE *new_handle = NULL;
 
-   if (filename)
+   if (filename && optional_file == 1)
    {
       int network = 0, socktype;
       if(!strncmp("tcp://", filename, 6))
@@ -646,12 +649,15 @@ int main ( int argc, char *argv[] )
    int8_t option_index = 0; 
    u32 sleep_duration = 0; //strtol(argv[1], &ptr, 10);
    char *_filename = "test_encode.h264"; 
-   while ((option_index = getopt(argc, argv, "ht:o:")) != -1)
+   while ((option_index = getopt(argc, argv, "nht:o:")) != -1)
    {
       char *intermediate_filename;
       char* extension;  
       switch (option_index)
       {
+         case 'n':
+            optional_file = 0; 
+            break;
          case 't':
             sleep_duration = atoi(optarg); // not type safe 
             break; 
@@ -669,6 +675,7 @@ int main ( int argc, char *argv[] )
             printf("Available options:\n\n");
             printf("\t-t\tDefaults to 0 ms which playbacks until ctrl+c.\n");
             printf("\t-o\tOutput filename, default is 'test_encode.h264'.\n");
+            printf("\t-n\tNo output file saved.\n");
             printf("\t-h\tHelp\n");
             return 1; 
          default: 
@@ -1087,7 +1094,7 @@ int main ( int argc, char *argv[] )
    }
 
    // open h264 file and put the file handle in userdata for the encoder output port
-      encoder_output->userdata = (void*)open_filename(_filename);
+   encoder_output->userdata = (void*)open_filename(_filename);
 
    //Create encoder output buffers
 
