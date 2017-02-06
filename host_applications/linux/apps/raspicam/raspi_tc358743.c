@@ -644,7 +644,6 @@ void signal_callback_handler(int signum)
 int main ( int argc, char *argv[] )
 {
    u8 option_index = 0; 
-   char *ptr;
    u32 sleep_duration = 0; //strtol(argv[1], &ptr, 10);
    char *_filename = "test_encode"; 
    while ((option_index = getopt(argc, argv, "t:f:")) != -1)
@@ -652,7 +651,12 @@ int main ( int argc, char *argv[] )
       switch (option_index)
       {
          case 't':
-            sleep_duration = strtol(optarg, &ptr, 10);
+            sleep_duration = atoi(optarg);
+            if (sleep_duration < 0)
+            {
+               vcos_log_error("Can't have negative time");
+               return 1;
+            }
             break;
          case 'f':
             _filename = optarg; 
