@@ -68,8 +68,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define u8  uint8_t
 #define u16 uint16_t
 #define u32 uint32_t
-   u8 optional_file = 1; 
-
+   
+u8 optional_file = 1; 
 u8 called_quit = 0;
 
 struct sensor_regs {
