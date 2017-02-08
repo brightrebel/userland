@@ -652,8 +652,6 @@ int main ( int argc, char *argv[] )
    char *_filename = "test_encode.h264"; 
    while ((option_index = getopt(argc, argv, "nht:o:")) != -1)
    {
-      char *intermediate_filename;
-      char* extension;  
       switch (option_index)
       {
          case 'n':
@@ -663,13 +661,11 @@ int main ( int argc, char *argv[] )
             sleep_duration = atoi(optarg); // not type safe 
             break; 
          case 'o':
-            intermediate_filename = optarg; 
-            if (strcmp(intermediate_filename, "") != 0)
+            if (strcmp(optarg, "") != 0)
             {
-               extension = ".h264";
-               _filename = (char *) malloc(1 + strlen(intermediate_filename)+ strlen(extension) );
-               strcpy(_filename, intermediate_filename);
-               strcat(_filename, extension);            
+               _filename = (char*) malloc(1 + strlen(optarg) + strlen(".h264"));
+               strcpy(_filename, optarg);
+               strcat(_filename, ".h264");   
             }  
             break; 
          case 'h':
@@ -680,7 +676,7 @@ int main ( int argc, char *argv[] )
             printf("\t-h\tHelp\n");
             return 1; 
          default: 
-            printf("Incorrect option!");
+            printf("Incorrect option!\n");
             return 1;
       }
    }
@@ -1096,7 +1092,11 @@ int main ( int argc, char *argv[] )
 
    // open h264 file and put the file handle in userdata for the encoder output port
    encoder_output->userdata = (void*)open_filename(_filename);
-
+   if (strcmp(_filename, "test_encode.h264") != 0)
+   {
+      free(_filename);
+      _filename = NULL;     
+   }
    //Create encoder output buffers
 
    vcos_log_error("Create pool of %d buffers of size %d", encoder_output->buffer_num, encoder_output->buffer_size);
